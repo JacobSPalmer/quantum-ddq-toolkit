@@ -90,9 +90,13 @@ def format_defec_string(operation_string, split_array, p, p_defec, is_one_qubit 
         {operation_string}({p}) {index_arr_to_str(split_array[0])}
         """
     else:
+        if is_one_qubit:
+            p_defec = p_defec*1.2
+            if p_defec >= .93:
+                p_defec = .93
         return f"""
         {operation_string}({p}) {index_arr_to_str(split_array[0])}
-        {operation_string}({p_defec*.4 if is_one_qubit else p_defec}) {index_arr_to_str(split_array[1])}
+        {operation_string}({p_defec}) {index_arr_to_str(split_array[1])}
         {operation_string}({p}) {index_arr_to_str(split_array[2])}
         """
 
