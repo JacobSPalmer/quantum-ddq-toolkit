@@ -2,7 +2,9 @@ TODO.md
 defective_qubit_notebook.ipynb
 scratch_notebooks
 versions
-data/*
-figures/*
-__pycache__/*
+data/
+figures/
+__pycache__/
+__pycache__
 .vscode
+.DS_STORE
