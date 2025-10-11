@@ -76,20 +76,6 @@ def split_array_on_def(coord_list, c2i, def_coord):
 
     return [slice1, [defec], slice2]
 
-def chunk_array(coord_list, c2i, def_coord):
-    def_ind = c2i[def_coord]
-    a = index_array(coord_list, c2i)
-    chunks = [a[i:i + 2] for i in range(0, len(a), 2)]
-    index = 0
-    for i, subarray in enumerate(chunks):
-        if def_ind in subarray:
-            index = i
-
-    slice_1_c = sum(chunks[:index], [])
-    def_slice = chunks[index]
-    slice_2_c = sum(chunks[(index + 1):], [])
-    return [slice_1_c, def_slice, slice_2_c]
-
 def chunk_arr(a, size=2):
     return [a[i:i + 2] for i in range(0, len(a), 2)]
 
@@ -148,11 +134,9 @@ def controlled_op_string(operation_string, coords, c2i, i2e):
         index_2 = c2i[cont_coords[1]]
         p_1 = i2e[index_1]
         p_2 = i2e[index_2]
-        #TODO - check if there is any frame of reference for the error rate on a 2 qubit operation???
+        
         p_comb = round_to_sig_figs(((p_1 + p_2)/2) * 1.2, count_sig_figs(p_1))
         
-        # if p_comb > .75:
-        #     p_comb = .75
         stim_string += f"""
         {operation_string}({p_comb}) {index_1} {index_2}"""
     return stim_string
