@@ -78,7 +78,6 @@ def homogeneous_noise_model_simulation(distance, p_values = None, p_defect_value
 
     ## Converts the given defect type string to a coordinate appropriate to the specified code distance (i.e. d=5, defect_type = 'center-data' => def_coord = (3,3) ## 
    
-
     def task(d):
         def_coord = get_coord_for_qubit_type(d, defect_type)
         tasks = [
@@ -94,7 +93,7 @@ def homogeneous_noise_model_simulation(distance, p_values = None, p_defect_value
                                 'distance': d,
                                 'defect_coord': def_coord,
                                 'defect_type': defect_type,
-                                'noise_model': 'homogeneous'}
+                                'noise_model': 'homogeneous-defect'}
             )
             for p in p_values
             for p_def in p_defect_values
@@ -114,7 +113,13 @@ def homogeneous_noise_model_simulation(distance, p_values = None, p_defect_value
         return task(distance)
 
 ## Case 3: Heterogeneous Noise With No Defects ##
-def heterogeneous_noise_model_simulation(distance, p_sigma_values, p_mu_values = None, rounds = 3, max_shots = 50_000):
+def heterogeneous_noise_model_simulation(distance, 
+                                         p_sigma_values, 
+                                         use_p_sigma_values_as_scalars = False,
+                                         p_mu_values = None, 
+                                         rounds = 3, 
+                                         max_shots = 50_000,
+                                         dist_func = None):
     """
     Runs STIM simulations of the parameterized repetition code with a heterogeneous noise model given the specified parameters.
 
@@ -129,21 +134,32 @@ def heterogeneous_noise_model_simulation(distance, p_sigma_values, p_mu_values =
         p_mu_values = [round_to_sig_figs(i, 15) for i in np.logspace(-3, -1, 20).tolist()]
 
     def task(d):
-        tasks = [
-            sinter.Task(
-                circuit = stim.Circuit(scg.surface_code_circuit_string_with_sigma_noise(distance = d, 
+        tasks = []
+        for p_mu in p_mu_values:
+            for p_sigma in p_sigma_values:
+                if use_p_sigma_values_as_scalars:
+                    scalar = p_sigma
+                    p_sigma = p_sigma * p_mu
+                else:
+                    scalar = p_sigma / p_mu
+                circ_str, i2e, _ = scg.surface_code_circuit_string_with_sigma_noise(distance = d, 
                                                                                         rounds=rounds, 
                                                                                         p_mu=p_mu, 
-                                                                                        p_sigma=p_sigma)),
-                json_metadata={'p_mu': p_mu, 
-                            'p_sigma': p_sigma, 
-                            'rounds':rounds,
-                            'distance':d,
-                            'noise_model': 'heterogeneous'}
-            )
-            for p_mu in p_mu_values
-            for p_sigma in p_sigma_values
-        ]
+                                                                                        p_sigma=p_sigma, 
+                                                                                        return_qubit_mapping=True)
+                mu_out, sigma_out, med = get_true_stats_from_i2e(i2e)
+                task = sinter.Task(
+                    circuit = stim.Circuit(circ_str),
+                    json_metadata={'p_mu': p_mu, 
+                                'p_sigma': p_sigma, 
+                                'p_sig_scalar': scalar,
+                                'rounds':rounds,
+                                'distance':d,
+                                'noise_model': 'heterogeneous' if not use_p_sigma_values_as_scalars else 'heterogeneous-sig-scalar',
+                                'mu_out': mu_out,
+                                'sigma_out': sigma_out
+                    })
+                tasks.append(task)
 
         stats: List[sinter.TaskStats] = sinter.collect(
             num_workers=os.cpu_count(),
@@ -161,7 +177,14 @@ def heterogeneous_noise_model_simulation(distance, p_sigma_values, p_mu_values =
 
 
 ## Case 4: Heterogeneous Noise With Defect ##
-def heterogeneous_noise_model_with_defect_simulation(distance, p_sigma, p_defect_values = None, defect_type = None, p_mu_values = None, rounds = 3, max_shots = 50_000):
+def heterogeneous_noise_model_with_defect_simulation(distance : int, 
+                                                     scalar, 
+                                                     use_p_sigma_values_as_scalars = False,
+                                                     p_defect_values = None, 
+                                                     defect_type = None, 
+                                                     p_mu_values = None, 
+                                                     rounds = 3, 
+                                                     max_shots = 50_000):
     """
     Runs STIM simulations of the parameterized repetition code with a heterogeneous noise model with defects given the specified parameters.
 
@@ -182,26 +205,42 @@ def heterogeneous_noise_model_with_defect_simulation(distance, p_sigma, p_defect
         if def_coord is None:
             print(f'{defect_type} is not a valid special string location. Please use either "center data", "center measure", "edge data", "edge measure"')
             return
-        tasks = [
-            sinter.Task(
-                circuit = stim.Circuit(scg.surface_code_circuit_string_with_sigma_noise(distance = d, 
-                                                                                        rounds=rounds, 
-                                                                                        p_mu=p_mu, 
-                                                                                        p_sigma=p_sigma,
-                                                                                        p_def=[p_def],
-                                                                                        def_coord=[def_coord])),
-                json_metadata={'p_mu': p_mu, 
-                            'p_sigma': p_sigma, 
-                            'rounds':rounds,
-                            'distance':d,
-                            'p_def': p_def,
-                            'defect_coord': def_coord,
-                            'defect_type': defect_type,
-                            'noise_model': 'heterogeneous-defect'}
-            )
-            for p_mu in p_mu_values
-            for p_def in p_defect_values
-        ]
+        
+        tasks = []
+        for p_def in p_defect_values:
+            for p_mu in p_mu_values:
+                p_sigma = scalar * p_mu
+                # print(f"defect: {p_def}")
+                circ_str, i2e, c2i = scg.surface_code_circuit_string_with_sigma_noise(distance = d, 
+                                                                                rounds=rounds, 
+                                                                                p_mu=p_mu, 
+                                                                                p_sigma=p_sigma,
+                                                                                p_def=[p_def] if p_def != 0.0 else None,
+                                                                                def_coord=[def_coord] if p_def != 0.0 else None, 
+                                                                                return_qubit_mapping=True)
+
+                # Removes the defect from impacting the average of the sampled distribution, since this is not part of the distribution but instead a manually specified error rate 
+                if p_def != 0.0: i2e.pop(c2i.get(def_coord))
+                # print(i2e)
+
+                mu_out, sigma_out, med = get_true_stats_from_i2e(i2e)
+                # print(f"Mu_out after defect removal: {mu_out}")
+
+                task = sinter.Task(
+                    circuit = stim.Circuit(circ_str),
+                    json_metadata={'p_mu': p_mu, 
+                                'p_sigma': p_sigma, 
+                                'p_sig_scalar': scalar,
+                                'rounds':rounds,
+                                'distance':d,
+                                'p_def': p_def,
+                                'defect_coord': def_coord,
+                                'defect_type': defect_type,
+                                'noise_model': 'heterogeneous-defect' if not use_p_sigma_values_as_scalars else 'heterogeneous-defect-sig-scalar',
+                                'mu_out': mu_out,
+                                'sigma_out': sigma_out}
+                    )
+                tasks.append(task)
 
         stats: List[sinter.TaskStats] = sinter.collect(
             num_workers=os.cpu_count(),
@@ -215,4 +254,3 @@ def heterogeneous_noise_model_with_defect_simulation(distance, p_sigma, p_defect
         return [task(d) for d in distance]
     else:
         return task(distance)
-    

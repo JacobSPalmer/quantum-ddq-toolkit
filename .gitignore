@@ -3,6 +3,7 @@ defective_qubit_notebook.ipynb
 scratch_notebooks
 versions
 data/
+data-old/
 figures/
 __pycache__/
 __pycache__

@@ -6,6 +6,7 @@ import matplotlib.cm as cm
 import numpy as np
 import pandas as pd
 from adjustText import adjust_text
+import re
 
 plt.rcParams['font.family'] = 'Times New Roman'
 plt.rcParams.update({'font.size': 12})
@@ -19,13 +20,16 @@ from collections import OrderedDict
 from helpers import *
 import ddq_circuit_generators as scg
 
-
-def sort_legend(lables_handles, convert_to_percent = False, key=str):
+def sort_legend(lables_handles, convert_to_percent = False, key_type="float"):
     handles = lables_handles[0]
     labels = lables_handles[1]
 
     by_label = OrderedDict(zip(labels, handles))
-    sorted_labels = sorted(by_label, key=key)
+    if key_type == 'str':
+        sorted_labels = by_label.keys()
+    else: 
+        sorted_labels = sorted(by_label, key=lambda key: re.findall(r"[-+]?\d*\.?\d+", key))
+    
     sorted_handles = [by_label[label] for label in sorted_labels]
     
     #Turn into percentage
@@ -34,21 +38,60 @@ def sort_legend(lables_handles, convert_to_percent = False, key=str):
 
     return (sorted_handles, sorted_labels)
 
-def format_ax_data(df, ax, ler_by_round = True, group_samples_by=None, x_axis_col=None):
-    if not group_samples_by or not x_axis_col:
-        match df.iloc[0]['noise_model']:
-            case 'heterogeneous':
-                group_samples_by = 'p_sigma'
-                x_axis_col = 'p_mu'
-            case 'homogeneous':
-                group_samples_by = 'p_defect'
-                x_axis_col = 'p'
-            case 'homogeneous-uniform':
-                group_samples_by = 'distance'
-                x_axis_col = 'p'
-            case 'heterogeneous-defect':
-                group_samples_by = 'p_defect'
-                x_axis_col = 'p_mu'
+def generate_intersections(df, x_data, y_data, group_data, ler_target, intersect_df, ax):
+    intersection_x_coords = []
+    texts = []
+    all_intersects_df = pd.DataFrame(columns=['distance', 'line', 'xy coord'])
+    for x, y, g in zip(x_data, y_data, group_data):
+        for i in range(len(x) - 1):
+            x1, y1 = x[i], y[i]
+            x2, y2 = x[i+1], y[i+1]
+
+            if (y1 <= ler_target < y2) or (y2 <= ler_target < y1):
+                if y2 - y1 != 0:  # Avoid division by zero for horizontal segments
+                    intersection_x = x1 + (ler_target - y1) * (x2 - x1) / (y2 - y1)
+                    intersection_x_coords.append(intersection_x)
+                    tb = ax.text(intersection_x, ler_target, f'{intersection_x:.5f}',
+                            verticalalignment='top', horizontalalignment='left',
+                            color='black', fontsize=10, alpha=0.8,
+                            bbox=dict(facecolor='lightgray', edgecolor='black', linewidth=1, boxstyle='round,pad=0.5', alpha=0.5))
+                    texts.append(tb)
+                    ax.plot(intersection_x, ler_target, marker='x', markersize=6) # Mark the intersection
+                    intersect_df.loc[len(intersect_df)] = {'distance': df.iloc[0]['distance'], 'line': g, 'xy coord': round_to_sig_figs(intersection_x, 4)}
+    if texts:
+        adjust_text(texts,
+            arrowprops=dict(arrowstyle='-', color='gray', lw=0.5), # Add arrows to indicate original position
+            expand_points=(1.2, 1.5), # Expand bounding box for point repulsion
+            force_points=(0.2, 0.5), # Repel force from points
+            force_text=(1.0, 1.6),
+            force_static=(0.5, 0.8),
+            explode_radius=(1.5),
+            ax=ax, # Repel force from other texts
+            lim=100)
+
+def format_ax_data(df, ax, ler_by_round = True, group_samples_by_override=None, x_axis_col_overide = None):
+    match df.iloc[0]['noise_model']:
+        # If creating a special case (i.e. using an alpha scalar versus static deviations), you can create a special case here to specify what the plotter uses as the grouping columns (group_samples_by) and the column for the x data (x_axis_col)
+        # Note - If you do create a special case that requires additional columns in the stats DF, ensure that the DF is properly setup in the helpers.py and reflected in the experiment function in the simulation_experiments.py 
+        case 'homogeneous-uniform':
+            group_samples_by = 'distance'
+            x_axis_col = 'p'
+        case 'homogeneous-defect':
+            group_samples_by = 'p_defect'
+            x_axis_col = 'p'
+        case 'heterogeneous':
+            group_samples_by = 'p_sigma'
+            x_axis_col = 'mu_out'
+        case 'heterogeneous-sig-scalar':
+            group_samples_by = 'p_sig_scalar'
+            x_axis_col = 'mu_out'
+        case 'heterogeneous-defect' | 'heterogeneous-defect-sig-scalar':
+            group_samples_by = 'p_defect'
+            x_axis_col = 'mu_out'
+
+    # In some cases, it's helpful to override the default plot setup for a specific noise model experiment. In this case, you can call the plotter function 
+    if x_axis_col_overide:
+        x_axis_col = x_axis_col_overide
     
     groups = df[group_samples_by].unique()
     g_label = group_samples_by
@@ -79,103 +122,145 @@ def format_ax_data(df, ax, ler_by_round = True, group_samples_by=None, x_axis_co
     return x_data_arr, y_data_arr, group_data_arr
 
 ## Homogeneous Noise Model Plot Generators ##
-def plot_simulation_data(df, use_loglog = True, ler_threshold = 0.0057, y_range = [10**-5, 0.1], scope_ler_by_rounds = True, ax = None, show_intersect=False, intersect_df = None, dpi=120):
+def plot_simulation_data(df, 
+                         use_loglog = True, 
+                         ler_target = 0.005, 
+                         custom_y_range = None,
+                         custom_x_range = None,
+                         scope_ler_by_rounds = True, 
+                         ax = None, 
+                         show_intersect=False, 
+                         intersect_df = None, 
+                         dpi=120, 
+                         x_axis_override = None,
+                         save_figure_path = None):
+    
     is_multiplot = True
     if not ax:
         fig, ax = plt.subplots(1,1)
         fig.set_dpi(dpi)
         is_multiplot = False
 
-    x_data, y_data, group_data = format_ax_data(df, ax)
+    x_data, y_data, group_data = format_ax_data(df, ax, x_axis_col_overide=x_axis_override)
+
     noise_model = df.iloc[0]['noise_model']
     distance = df.loc[0]['distance']
     
-    if ler_threshold:
-        ax.hlines([ler_threshold], 0.0, 1.0, linestyles='dashed', label=f'{ler_threshold} logical threshold', color='gray')
-    if noise_model == 'heterogeneous':
-        x_variable = 'p_mu'
-        legend_title = r'p$_{σ}$'
-        xlabel = r'Mean Physical Error Rate (p$_{μ}$)'
-        ax_title = f"Heterogeneous Noise; (d={distance})"
-    elif noise_model == 'homogeneous':
-        x_variable = 'p'
-        legend_title = r'p$_{defect}$'
-        xlabel = 'Physical Error Rate (p)'
-        ax_title = f"Homogeneous Noise w/ {df.iloc[0]['defect_type'].title()} Qubit Defect; (d={distance})"
-    elif noise_model == 'homogeneous-uniform':
-        x_variable = 'p'
-        legend_title = 'd'
-        xlabel = 'Physical Error Rate (p)'
-        ax_title = f"Uniform Homogeneous Noise"
-    elif noise_model == 'heterogeneous-defect':
-        x_variable = 'p_mu'
-        legend_title = r'p$_{defect}$'
-        xlabel = r'Mean Physical Error Rate (p$_{μ}$)'
-        ax_title = f"Heterogeneous Noise w/ {df.iloc[0]['defect_type'].title()} Qubit Defect; (d={distance}, {r'p$_{σ}$'}={df.iloc[0]['p_sigma']})"
+    if ler_target:
+        ax.hlines([ler_target], 0.0, 1.0, linestyles='dashed', label=f'{ler_target} {r'LER$_{target}$'}', color='gray')
+
+    y_label = f"Logical Error Rate per {'round' if scope_ler_by_rounds else 'shot'} (ε)"
+
+    # These cases match the listed noise model for the experiment function in simulation_experiments.py
+    # If you create a new noise model that does not use an existing noise model below, you must specify the x_variable, legend_title, x_label, and ax_title for this new experiment. These are used to label the graph.
+    match noise_model:
+        case 'homogeneous-uniform':
+            x_variable = 'p'
+            legend_title = 'd'
+            x_label = 'Physical Error Rate (p)'
+            ax_title = f"Uniform Homogeneous Noise"
+        case 'homogeneous-defect':
+            x_variable = 'p'
+            legend_title = r'p$_{defect}$'
+            x_label = 'Physical Error Rate (p)'
+            ax_title = f"Homogeneous Noise w/ {df.iloc[0]['defect_type'].title()} Qubit Defect; (d={distance})"
+        case 'heterogeneous':
+            if x_axis_override == 'mu_out':
+                x_variable = 'mu_out'
+                legend_title = r'p$_{σ}$'
+                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
+            else:
+                x_variable = 'p_mu'
+                x_label = r'Mean Physical Error Rate (p$_{μ}$)'
+            legend_title = r'p$_{σ}$'
+            ax_title = f"Heterogeneous Noise; (d={distance})"
+        case 'heterogeneous-sig-scalar':
+            if x_axis_override == 'mu_out':
+                x_variable = 'mu_out'
+                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
+            else:
+                x_variable = 'p_mu'
+                x_label = r'Mean Physical Error Rate (p$_{μ}$)'
+            legend_title = r'α = p$_{σ}$/p$_{μ}$'
+            ax_title = f"Heterogeneous Noise; (d={distance})"
+        case 'heterogeneous-defect':
+            if x_axis_override == 'mu_out':
+                x_variable = 'mu_out'
+                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
+            else:
+                x_variable = 'p_mu'
+                x_label = r'Mean Physical Error Rate (p$_{μ}$)'
+            legend_title = r'p$_{defect}$'
+            ax_title = f"Heterogeneous Noise w/ {df.iloc[0]['defect_type'].title()} Qubit Defect; (d={distance}, {r'p$_{σ}$'}={df.iloc[0]['p_sigma']})"
+        case 'heterogeneous-defect-sig-scalar':
+            if x_axis_override == 'mu_out':
+                x_variable = 'mu_out'
+                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
+            else:
+                x_variable = 'p_mu'
+                x_label = r'Mean Physical Error Rate (p$_{μ}$)'
+            legend_title = r'p$_{defect}$'
+            ax_title = f"Heterogeneous Noise w/ {df.iloc[0]['defect_type'].title()} Qubit Defect; (d={distance}, {r'α'}={df.iloc[0]['p_sig_scalar']})"
 
     if use_loglog: 
         ax.loglog()
         ax.set_xlim(min(df[x_variable]), max(df[x_variable]))
         ax.set_ylim(0.0001, top=.5) 
-
-
-    ylabel = f"Logical Error Rate per {'round' if scope_ler_by_rounds else 'shot'} (ε)"
-
+    
+    # For scenarios where you want to specifically zoom in perhaps!
+    if custom_x_range: ax.set_xlim(custom_x_range)
+    if custom_y_range: ax.set_ylim(custom_y_range)
+    
     ax.grid(which='major')
     ax.grid(which='minor')
 
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
     ax.set_title(ax_title)
     
     if show_intersect:
-        intersection_x_coords = []
-        texts = []
-        all_intersects_df = pd.DataFrame(columns=['distance', 'line', 'xy coord'])
-        for x, y, g in zip(x_data, y_data, group_data):
-            for i in range(len(x) - 1):
-                x1, y1 = x[i], y[i]
-                x2, y2 = x[i+1], y[i+1]
-
-                if (y1 <= ler_threshold < y2) or (y2 <= ler_threshold < y1):
-                    if y2 - y1 != 0:  # Avoid division by zero for horizontal segments
-                        intersection_x = x1 + (ler_threshold - y1) * (x2 - x1) / (y2 - y1)
-                        intersection_x_coords.append(intersection_x)
-                        tb = ax.text(intersection_x, ler_threshold, f'{intersection_x:.5f}',
-                                verticalalignment='top', horizontalalignment='left',
-                                color='black', fontsize=10, alpha=0.8,
-                                bbox=dict(facecolor='lightgray', edgecolor='black', linewidth=1, boxstyle='round,pad=0.5', alpha=0.5))
-                        texts.append(tb)
-                        ax.plot(intersection_x, ler_threshold, marker='x', markersize=6) # Mark the intersection
-                        intersect_df.loc[len(intersect_df)] = {'distance': df.iloc[0]['distance'], 'line': g, 'xy coord': round_to_sig_figs(intersection_x, 4)}
-                                
-
-        if texts:
-            adjust_text(texts,
-                arrowprops=dict(arrowstyle='-', color='gray', lw=0.5), # Add arrows to indicate original position
-                expand_points=(1.2, 1.5), # Expand bounding box for point repulsion
-                force_points=(0.2, 0.5), # Repel force from points
-                force_text=(1.0, 1.6),
-                force_static=(0.5, 0.8),
-                explode_radius=(1.5),
-                ax=ax, # Repel force from other texts
-                lim=100)
+        generate_intersections(df, x_data, y_data, group_data, ler_target, intersect_df, ax)
         
-    handles, labels = sort_legend(plt.gca().get_legend_handles_labels())
+    #TODO - this is custom handled since the keys in the homogeneous-uniform get ordered incorrectly since using ints not floats
+    if noise_model == 'homogeneous-uniform':
+        handles, labels = sort_legend(plt.gca().get_legend_handles_labels(), key_type='str')
+    else:
+        handles, labels = sort_legend(plt.gca().get_legend_handles_labels())
 
     ax.legend(title=legend_title, labels=labels, handles=handles, fontsize='small', loc='lower right' if use_loglog else 'best')
 
     if not is_multiplot:
         ax.plot()
+        if save_figure_path:
+            save_pyplot_as_image(save_figure_path, dpi)
 
-def plot_multi_distance_simulation_data(arr_df, grid_dims = None, use_loglog = True, ler_threshold = 0.0057, x_range = [0.001, 0.005], y_range = [10**-5, 0.1], scope_ler_by_rounds = True, show_intersect=False, intersect_df = None, dpi=240):
+def plot_multi_distance_simulation_data(arr_df, 
+                                        grid_dims = None, 
+                                        use_loglog = True, 
+                                        ler_target = 0.005, 
+                                        x_range = None, 
+                                        y_range = None, 
+                                        x_axis_override = None, 
+                                        scope_ler_by_rounds = True, 
+                                        show_intersect=False, 
+                                        intersect_df = None, 
+                                        dpi=120,
+                                        save_figure_path = None):
     if grid_dims is None:
         grid_dims = [math.floor(len(arr_df)/2) + len(arr_df)%2 , 2]
+
     fig = plt.figure(figsize=(10*grid_dims[1], 8*grid_dims[0]))
     gs = fig.add_gridspec(grid_dims[0],grid_dims[1], hspace=0.09, wspace=0.04)
     gs.subplots().flatten()
+
     for df, ax in zip(arr_df, fig.get_axes()):
-        plot_simulation_data(df, use_loglog, ler_threshold, y_range, scope_ler_by_rounds, ax, show_intersect, intersect_df, dpi)
+        plot_simulation_data(df, use_loglog=use_loglog, ler_target=ler_target, custom_y_range=y_range, custom_x_range=x_range, scope_ler_by_rounds=scope_ler_by_rounds, ax=ax, show_intersect=show_intersect, intersect_df=intersect_df, dpi=dpi, x_axis_override=x_axis_override)
+
     for ax in fig.get_axes():
         ax.label_outer()
+
     fig.set_dpi(dpi)
+
+    # If you would like to easily save the generated figure
+    if save_figure_path:
+        save_pyplot_as_image(save_figure_path, dpi)
