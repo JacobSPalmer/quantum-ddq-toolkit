@@ -165,40 +165,39 @@ def plot_simulation_data(df,
             x_label = 'Physical Error Rate (p)'
             ax_title = f"Homogeneous Noise w/ {df.iloc[0]['defect_type'].title()} Qubit Defect; (d={distance})"
         case 'heterogeneous':
-            if x_axis_override == 'mu_out':
-                x_variable = 'mu_out'
-                legend_title = r'p$_{σ}$'
-                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
-            else:
+            if x_axis_override == 'p_mu':
                 x_variable = 'p_mu'
                 x_label = r'Mean Physical Error Rate (p$_{μ}$)'
+            else:
+                x_variable = 'mu_out'
+                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
             legend_title = r'p$_{σ}$'
             ax_title = f"Heterogeneous Noise; (d={distance})"
         case 'heterogeneous-sig-scalar':
-            if x_axis_override == 'mu_out':
-                x_variable = 'mu_out'
-                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
-            else:
+            if x_axis_override == 'p_mu':
                 x_variable = 'p_mu'
                 x_label = r'Mean Physical Error Rate (p$_{μ}$)'
+            else:
+                x_variable = 'mu_out'
+                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
             legend_title = r'α = p$_{σ}$/p$_{μ}$'
             ax_title = f"Heterogeneous Noise; (d={distance})"
         case 'heterogeneous-defect':
-            if x_axis_override == 'mu_out':
-                x_variable = 'mu_out'
-                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
-            else:
+            if x_axis_override == 'p_mu':
                 x_variable = 'p_mu'
                 x_label = r'Mean Physical Error Rate (p$_{μ}$)'
+            else:
+                x_variable = 'mu_out'
+                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
             legend_title = r'p$_{defect}$'
             ax_title = f"Heterogeneous Noise w/ {df.iloc[0]['defect_type'].title()} Qubit Defect; (d={distance}, {r'p$_{σ}$'}={df.iloc[0]['p_sigma']})"
         case 'heterogeneous-defect-sig-scalar':
-            if x_axis_override == 'mu_out':
-                x_variable = 'mu_out'
-                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
-            else:
+            if x_axis_override == 'p_mu':
                 x_variable = 'p_mu'
                 x_label = r'Mean Physical Error Rate (p$_{μ}$)'
+            else:
+                x_variable = 'mu_out'
+                x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
             legend_title = r'p$_{defect}$'
             ax_title = f"Heterogeneous Noise w/ {df.iloc[0]['defect_type'].title()} Qubit Defect; (d={distance}, {r'α'}={df.iloc[0]['p_sig_scalar']})"
 
