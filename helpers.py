@@ -8,7 +8,10 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
 import pandas as pd
+import re
+
 from adjustText import adjust_text
+from datetime import datetime
 
 plt.rcParams['font.family'] = 'Times New Roman'
 plt.rcParams.update({'font.size': 12})
@@ -50,6 +53,12 @@ def count_logical_errors(circuit: stim.Circuit, num_shots: int) -> int:
             num_errors += 1
     return num_errors
 
+def get_true_stats_from_i2e(i2e):        
+    mu = np.mean(list(i2e.values()))
+    sigma = np.std(list(i2e.values()))
+    med = np.median(list(i2e.values()))
+    return mu, sigma, med
+
 def get_coord_for_qubit_type(distance, type = 'center data'):
     #TODO - add type options for various spaces (i.e. edge data qubit or edge measure qubit)
     match type.lower():
@@ -70,81 +79,92 @@ def get_coord_for_qubit_type(distance, type = 'center data'):
 ## STIM Simulation Data Decomposers ##
 def stats_to_df(stats):
     """
-    Harvests the STIM simulation data into a easy-to-use DataFrame for additional analysis of simulation results and performance
+    Harvests the STIM simulation data into a easy-to-use DataFrame for additional analysis of simulation results and performance.
+    Additional noise model DF can be created or extended as needed to reflect the setup specified in the experiment.
     """
     noise_model = stats[0].json_metadata['noise_model']
-    if noise_model == 'heterogeneous':
-        df = pd.DataFrame(columns=['p_sigma','p_mu', 'distance', 'rounds', 'shots',  'errors', 'ler_shot', 'ler_round', 'noise_model'])
-        group_col = 'p_sigma'
-        x_col = 'p_mu'
-        for s in stats:
-            df.loc[len(df)] = {
-                'p_mu': s.json_metadata['p_mu'],
-                'p_sigma': s.json_metadata['p_sigma'],
-                'distance': s.json_metadata['distance'],
-                'rounds': s.json_metadata['rounds'],
-                'shots': s.shots,
-                'errors': s.errors,
-                'ler_shot': s.errors/s.shots,
-                'ler_round': round_to_sig_figs(s.errors/(s.shots * s.json_metadata['rounds']), 10),
-                'noise_model': s.json_metadata['noise_model']
-            }
-        df.sort_values(by=['p_sigma', 'p_mu'])
-    elif noise_model == 'homogeneous':
-        df = pd.DataFrame(columns=['p','p_defect','defect_coordinate','defect_type', 'distance', 'rounds', 'shots',  'errors', 'ler_shot', 'ler_round', 'noise_model'])
-        group_col = 'p_defect'
-        x_col = 'p'
-        for s in stats:
-            df.loc[len(df)] = {
-                'p': s.json_metadata['p'],
-                'p_defect': s.json_metadata['p_def'],
-                'defect_coordinate': s.json_metadata['defect_coord'],
-                'defect_type': s.json_metadata['defect_type'],
-                'distance': s.json_metadata['distance'],
-                'rounds': s.json_metadata['rounds'],
-                'shots': s.shots,
-                'errors': s.errors,
-                'ler_shot': s.errors/s.shots,
-                'ler_round': round_to_sig_figs(s.errors/(s.shots * s.json_metadata['rounds']), 10),
-                'noise_model': s.json_metadata['noise_model']
-            }
-        df.sort_values(by=['p_defect','p'])
-    elif noise_model == 'heterogeneous-defect':
-        df = pd.DataFrame(columns=['p_sigma','p_mu','p_defect','defect_coordinate','defect_type', 'distance', 'rounds', 'shots',  'errors', 'ler_shot', 'ler_round', 'noise_model'])
-        group_col = 'p_defect'
-        x_col = 'p_mu'
-        for s in stats:
-            df.loc[len(df)] = {
-                'p_mu': s.json_metadata['p_mu'],
-                'p_sigma': s.json_metadata['p_sigma'],
-                'p_defect': s.json_metadata['p_def'],
-                'defect_coordinate': s.json_metadata['defect_coord'],
-                'defect_type': s.json_metadata['defect_type'],
-                'distance': s.json_metadata['distance'],
-                'rounds': s.json_metadata['rounds'],
-                'shots': s.shots,
-                'errors': s.errors,
-                'ler_shot': s.errors/s.shots,
-                'ler_round': round_to_sig_figs(s.errors/(s.shots * s.json_metadata['rounds']), 10),
-                'noise_model': s.json_metadata['noise_model']
-            }
-        df.sort_values(by=[group_col, x_col])
-    else:
-        group_col = 'distance'
-        x_col = 'p'
-        df = pd.DataFrame(columns=['p','distance', 'rounds', 'shots',  'errors', 'ler_shot', 'ler_round', 'noise_model'])
-        for s in stats:
-            df.loc[len(df)] = {
-                'p': s.json_metadata['p'],
-                'distance': s.json_metadata['distance'],
-                'rounds': s.json_metadata['rounds'],
-                'shots': s.shots,
-                'errors': s.errors,
-                'ler_shot': s.errors/s.shots,
-                'ler_round': round_to_sig_figs(s.errors/(s.shots * s.json_metadata['rounds']), 10),
-                'noise_model': s.json_metadata['noise_model']
-            }
-            df.sort_values(by=['distance','p'])
+    match noise_model:
+        case 'heterogeneous' | 'heterogeneous-sig-scalar':
+            df = pd.DataFrame(columns=['p_sigma','p_mu', 'p_sig_scalar', 'distance', 'rounds', 'shots',  'errors', 'ler_shot','mu_out', 'sigma_out', 'ler_round', 'noise_model'])
+            if noise_model == 'heterogeneous-sig-scalar':
+                group_col = 'p_sig_scalar'
+            else:
+                group_col = 'p_sigma'
+            x_col = 'mu_out'
+            for s in stats:
+                df.loc[len(df)] = {
+                    'p_mu': s.json_metadata['p_mu'],
+                    'p_sigma': s.json_metadata['p_sigma'],
+                    'distance': s.json_metadata['distance'],
+                    'rounds': s.json_metadata['rounds'],
+                    'shots': s.shots,
+                    'errors': s.errors,
+                    'ler_shot': s.errors/s.shots,
+                    'mu_out': s.json_metadata['mu_out'],
+                    'sigma_out': s.json_metadata['sigma_out'],
+                    'p_sig_scalar': s.json_metadata['p_sig_scalar'],
+                    'ler_round': round_to_sig_figs(s.errors/(s.shots * s.json_metadata['rounds']), 10),
+                    'noise_model': s.json_metadata['noise_model']
+                }
+        case 'homogeneous-defect':
+            df = pd.DataFrame(columns=['p','p_defect','defect_coordinate','defect_type', 'distance', 'rounds', 'shots',  'errors', 'ler_shot', 'ler_round', 'noise_model'])
+            group_col = 'p_defect'
+            x_col = 'p'
+            for s in stats:
+                df.loc[len(df)] = {
+                    'p': s.json_metadata['p'],
+                    'p_defect': s.json_metadata['p_def'],
+                    'defect_coordinate': s.json_metadata['defect_coord'],
+                    'defect_type': s.json_metadata['defect_type'],
+                    'distance': s.json_metadata['distance'],
+                    'rounds': s.json_metadata['rounds'],
+                    'shots': s.shots,
+                    'errors': s.errors,
+                    'ler_shot': s.errors/s.shots,
+                    'ler_round': round_to_sig_figs(s.errors/(s.shots * s.json_metadata['rounds']), 10),
+                    'noise_model': s.json_metadata['noise_model']
+                }
+        case 'heterogeneous-defect' | 'heterogeneous-defect-sig-scalar':
+            df = pd.DataFrame(columns=['p_sigma','p_mu','p_sig_scalar','p_defect','defect_coordinate','defect_type', 'distance', 'rounds', 'shots',  'errors', 'ler_shot','mu_out', 'sigma_out', 'ler_round', 'noise_model'])
+            group_col = 'p_defect'
+            x_col = 'mu_out'
+            for s in stats:
+                df.loc[len(df)] = {
+                    'p_mu': s.json_metadata['p_mu'],
+                    'p_sigma': s.json_metadata['p_sigma'],
+                    'p_defect': s.json_metadata['p_def'],
+                    'defect_coordinate': s.json_metadata['defect_coord'],
+                    'defect_type': s.json_metadata['defect_type'],
+                    'distance': s.json_metadata['distance'],
+                    'rounds': s.json_metadata['rounds'],
+                    'shots': s.shots,
+                    'errors': s.errors,
+                    'ler_shot': s.errors/s.shots,
+                    'mu_out': s.json_metadata['mu_out'],
+                    'sigma_out': s.json_metadata['sigma_out'],
+                    'p_sig_scalar': s.json_metadata['p_sig_scalar'],
+                    'ler_round': round_to_sig_figs(s.errors/(s.shots * s.json_metadata['rounds']), 10),
+                    'noise_model': s.json_metadata['noise_model']
+                }
+        # The default case is the homogenous uniform noise model, and contains the basic elements needed to plot performance data
+        case _:
+            group_col = 'distance'
+            x_col = 'p'
+            df = pd.DataFrame(columns=['p','distance', 'rounds', 'shots',  'errors', 'ler_shot', 'ler_round', 'noise_model', 'mu_out', 'sigma_out'])
+            for s in stats:
+                df.loc[len(df)] = {
+                    'p': s.json_metadata['p'],
+                    'distance': s.json_metadata['distance'],
+                    'rounds': s.json_metadata['rounds'],
+                    'shots': s.shots,
+                    'errors': s.errors,
+                    'ler_shot': s.errors/s.shots,
+                    'ler_round': round_to_sig_figs(s.errors/(s.shots * s.json_metadata['rounds']), 10),
+                    'noise_model': s.json_metadata['noise_model']
+                }
+                # df.sort_values(by=['distance','p'])
+    
+    df.sort_values(by=[group_col,x_col])
     return df
 
 def concat_stats_df(df_l):
@@ -155,13 +175,50 @@ def concat_stats_df(df_l):
 
 def stats_df_to_csv(df, filename, subfolder):
     path = 'data'
-    filename = f"{filename}.csv"
+
+    now = datetime.now()
+    filename = f"{filename}-{now.strftime("%Y%m%d_%H%M")}.csv"
+
     subfolder_path = os.path.join(path, subfolder)
     filepath = os.path.join(path, subfolder, filename)
+    
+
     if not os.path.exists(subfolder_path):
         os.makedirs(subfolder_path)
+
     
     if isinstance(df, list):
-        return concat_stats_df(df).to_csv(filepath, index=False)
+        concat_stats_df(df).to_csv(filepath, index=False)
     else:
-        return df.to_csv(filepath, index=False)
+        df.to_csv(filepath, index=False)
+    print(f'Saved plot as {filepath}')
+    
+def save_pyplot_as_image(path, dpi):
+    subfolder = re.search(r"^(.*)/", path).group(0)
+    filename = re.search(r'[^/]+$', path).group(0)
+
+
+    subfolder_path = os.path.join('data', subfolder)
+    if not os.path.exists(subfolder_path):
+        os.makedirs(subfolder_path)
+
+    now = datetime.now()
+    filepath = os.path.join(subfolder_path, f"{filename}-{now.strftime("%Y%m%d_%H%M")}.png")
+
+    plt.savefig(fname=filepath, dpi=dpi, bbox_inches = 'tight')
+    print(f'Saved plot as {filepath}')
+
+def simulation_stats_from_csv(path_to_data, csv_file_name, split_df_on = None):
+    df = pd.read_csv(f"{path_to_data}/{csv_file_name}")
+    if split_df_on:
+        df_list = []
+        for s in df[split_df_on].unique():
+            df_t = df.loc[df[split_df_on] == s].copy()
+            df_list.append(df_t.reset_index(drop=True))
+        return df_list
+    else:
+        return df
+
+
+
+    
