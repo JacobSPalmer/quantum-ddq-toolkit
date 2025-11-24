@@ -175,16 +175,23 @@ def concat_stats_df(df_l):
 
 def stats_df_to_csv(df, filename, subfolder):
     path = 'data'
-    filename = f"{filename}.csv"
+
+    now = datetime.now()
+    filename = f"{filename}-{now.strftime("%Y%m%d_%H%M")}.csv"
+
     subfolder_path = os.path.join(path, subfolder)
     filepath = os.path.join(path, subfolder, filename)
+    
+
     if not os.path.exists(subfolder_path):
         os.makedirs(subfolder_path)
+
     
     if isinstance(df, list):
-        return concat_stats_df(df).to_csv(filepath, index=False)
+        concat_stats_df(df).to_csv(filepath, index=False)
     else:
-        return df.to_csv(filepath, index=False)
+        df.to_csv(filepath, index=False)
+    print(f'Saved plot as {filepath}')
     
 def save_pyplot_as_image(path, dpi):
     subfolder = re.search(r"^(.*)/", path).group(0)
@@ -196,9 +203,21 @@ def save_pyplot_as_image(path, dpi):
         os.makedirs(subfolder_path)
 
     now = datetime.now()
-    filepath = os.path.join(subfolder_path, f"{filename}-{now.strftime("%Y%m%d_%H%M%S")}.png")
-    print(f'Saved plot as {filepath}')
+    filepath = os.path.join(subfolder_path, f"{filename}-{now.strftime("%Y%m%d_%H%M")}.png")
+
     plt.savefig(fname=filepath, dpi=dpi, bbox_inches = 'tight')
+    print(f'Saved plot as {filepath}')
+
+def simulation_stats_from_csv(path_to_data, csv_file_name, split_df_on = None):
+    df = pd.read_csv(f"{path_to_data}/{csv_file_name}")
+    if split_df_on:
+        df_list = []
+        for s in df[split_df_on].unique():
+            df_t = df.loc[df[split_df_on] == s].copy()
+            df_list.append(df_t.reset_index(drop=True))
+        return df_list
+    else:
+        return df
 
 
 
