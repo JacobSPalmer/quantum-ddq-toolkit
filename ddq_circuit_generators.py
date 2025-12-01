@@ -7,7 +7,6 @@ import scipy.stats as stats
 
 ## Coordinates ##
 def data_coords(distance):
-    # Returns coordinate pairs from (1,1) to (distance,distance).
     coords = []
     for row in range(1, distance+1):
         for col in range(1, distance+1):
@@ -15,8 +14,6 @@ def data_coords(distance):
     return coords
 
 def z_measure_coords(distance):
-    # Returns coordinate pairs for Z measure qubits, offset from
-    #  the data qubits by 0.5.
     coords = []
     for row in range(1, distance): # don't include the last row
         for col in range(1, distance+1, 2): # only take every other qubit
@@ -27,8 +24,6 @@ def z_measure_coords(distance):
     return coords
 
 def x_measure_coords(distance):
-    # Returns coordinate pairs for X measure qubits, offset from
-    #  the data qubits by 0.5 and opposite the Y measure qubits.
     coords = []
     for row in range(1, distance+2): # include extra for last row measures
         for col in range(2, distance, 2): # start from second column, ignore last
@@ -39,14 +34,9 @@ def x_measure_coords(distance):
     return coords
 
 def coords_to_index(coords):
-    # Inverts a list of coordinates into a dict that maps the coord 
-    #  to its index in the list.
     return {tuple(c):i for i,c in dict(enumerate(coords)).items()}
 
 def adjacent_coords(coord):
-    # Returns the four coordinates at diagonal 0.5 offsets from the input coord.
-    # Follows the X-stabilizer plaquette corner ordering from the lecture: 
-    #  top-left, top-right, bottom-left, bottom-right.
     col, row = coord
     adjacents = [(col-0.5, row-0.5), (col+0.5, row-0.5),
                (col-0.5, row+0.5), (col+0.5, row+0.5),
@@ -151,24 +141,33 @@ def controlled_op_string(operation_string, coords, c2i, i2e):
         #TODO - check if there is any frame of reference for the error rate on a 2 qubit operation???
         p_comb = round_to_sig_figs(((p_1 + p_2)/2) * 1.2, count_sig_figs(p_1))
         
-        # if p_comb > .75:
-        #     p_comb = .75
         stim_string += f"""
         {operation_string}({p_comb}) {index_1} {index_2}"""
     return stim_string
 
 ## Mapping funcs for Coords, Indices, and Errors ##
-
 def prepare_coords(distance):
-    # Returns coordinates for data qubits, x measures and z measures, along with 
-    #  a coordinate-to-index mapping for all of the qubits.
-    # The indices are ordered: data first, then x measures, then z measures.
     datas = data_coords(distance)
     x_measures = x_measure_coords(distance)
     z_measures = z_measure_coords(distance)
     c2i = coords_to_index(datas+x_measures+z_measures)
     return datas, x_measures, z_measures, c2i
 
+## Prebuilt Distribution Generators ##
+def prepare_error_map(distance, 
+                      noise_dist_func = None, 
+                      **kwargs):
+    if noise_dist_func:
+        return noise_dist_func(distance = distance, **kwargs)
+    else: 
+        return prepare_norm_dist_errors(distance = distance, **kwargs)
+# Norm #
+# def prepare_norm_dist_errors(distance, p_mu, p_sigma, precision=5):
+#     rng = np.random.default_rng()
+#     print(p_sigma)
+#     return {key: round_to_sig_figs(rng.normal(loc=p_mu, scale=p_sigma), precision) for key in range(0, 2*distance**2 - 1)}
+
+# Homogeneous Uniform Constant Error #
 def prepare_constant_errors(distance, error):
     return {key: error for key in range(0, 2*distance**2 - 1)}
 
@@ -179,8 +178,8 @@ def prepare_constant_errors(distance, error):
 
 ## Truncated Norm ##
 # TODO - review if this impacts any simulation in a major way. necessary to prevent negative error rates but there might be a better dist. to use entirely
-def prepare_norm_dist_errors(distance, mu, sigma, precision=5):
-    truncated_dist = stats.truncnorm((0.000001-mu)/sigma, (1-mu)/sigma, loc=mu, scale=sigma)
+def prepare_norm_dist_errors(distance, p_mu, p_sigma, precision=5):
+    truncated_dist = stats.truncnorm((0.000001-p_mu)/p_sigma, (1-p_mu)/p_sigma, loc=p_mu, scale=p_sigma)
     return {key: round_to_sig_figs(truncated_dist.rvs(1)[0], precision) for key in range(0, 2*distance**2 - 1)}
 
 def map_defects(c2i, i2e, def_coord, p_def):
@@ -188,7 +187,6 @@ def map_defects(c2i, i2e, def_coord, p_def):
     for c, p in zip(def_coord, p_def):
         i2e[c2i[c]] = p
     return i2e
-## ##
 
 def coord_circuit(distance):
     # Returns a Stim circuit string that adds a QUBIT_COORDS instruction for each
@@ -200,13 +198,6 @@ def coord_circuit(distance):
     return stim_circuit, c2i
 
 def label_indices(distance):
-    # Returns a Stim circuit string that labels each of the qubits with their 
-    #  type and index in the coordinate-to-index mapping.
-    # Uses ERROR operations to do the labeling: X_ and Z_ERRORs correspond to
-    #  qubits that will be used for X and Z type stabilizer measurements, and
-    #  Y_ERRORs label the data qubits. 
-    # The index of the qubit is encoded in the operation's error probability: 
-    #  The value after the decimal is the index. Eg. 0.01 is 1 and 0.1 is 10.
     datas, x_measures, z_measures, c2i = prepare_coords(distance)
     all_qubits = datas + x_measures + z_measures
     i = 0
@@ -238,13 +229,13 @@ def split_list(input_list, delimiter):
         else:
             current_sublist.append(item)
     
-    result.append(current_sublist) # Append the last sublist
+    result.append(current_sublist)
     return result
 
 ## Format Stim String Functions ##
 
 def lattice_with_noise(distance, i2e):
-    datas, x_measures, z_measures, c2i = prepare_coords(distance)
+    _, x_measures, z_measures, c2i = prepare_coords(distance)
 
     stim_string = ""
     for i in range(4):
@@ -260,7 +251,7 @@ def lattice_with_noise(distance, i2e):
             index_reorder = [0, 2, 1, 3]
             target = x_targets[index_reorder[i]]
             if target in c2i:
-                cx_qubits.extend([measure, target]) # flipped order!
+                cx_qubits.extend([measure, target])
 
         idle_qubits = [coord for coord in c2i.keys() if coord not in cx_qubits]
         
@@ -377,7 +368,7 @@ def rounds_step(distance, rounds, i2e):
         
     stim_string += """
     }
-    """ # end repeat block
+    """
 
     return stim_string
 
@@ -419,17 +410,13 @@ def final_step(distance, i2e):
     M {index_string(all_qubits, c2i)}
     """
 
-    # remember measure order is datas, x_measures, z_measures
-    # do previous-round detectors first
-    num_measures_per_type = len(z_measures) # number of measures per type per round
+    num_measures_per_type = len(z_measures) 
     num_datas = len(datas)
-    for i in range(1, num_measures_per_type+1): # offset to the previous round
+    for i in range(1, num_measures_per_type+1): 
         stim_string += f"DETECTOR({i}, 0) rec[{-i}] rec[{-(i+2*num_measures_per_type+num_datas)}]\n"
-    for i in range(1, num_measures_per_type+1): # offset to the other type and to the previous round
+    for i in range(1, num_measures_per_type+1): 
         stim_string += f"DETECTOR({i}, 0) rec[{-(i+num_measures_per_type)}] rec[{-(i+3*num_measures_per_type+num_datas)}]\n"
     
-    # now the confusing one: the final data measurements and their adjacent measure measurements
-    # create a dict that maps each coord to the record index of the most recent measurement on it
     coord_to_record_index = {coord: i-len(all_qubits) for i, coord in enumerate(all_qubits)}
     for i, measure in enumerate(z_measures):
         record_indices = []
@@ -447,8 +434,7 @@ def final_step(distance, i2e):
 
     return stim_string
 
-# Temp Plot Generators
-
+# Plot Generators
 def plot_lattice_errors(i2e, distance, mu, sigma):
     samples = i2e.values()
     x = np.linspace(min(samples), max(samples), num=len(samples))
@@ -470,7 +456,11 @@ def plot_lattice_errors(i2e, distance, mu, sigma):
 # defects -> boolean; if true, the qubits at the specified def_coords with be overrided with the values in p_def
 # p_def -> array of physical error rates for defective qubits
 # defect_coords -> array of coordinates for defective qubits [(x1, y1), (x2, y2), ...], p_def[i] corresponds to defect_coords[i]
-def surface_code_circuit_string(distance, rounds, p, p_def = [], def_coord = []):
+def surface_code_circuit_string(distance: int, 
+                                rounds: int, 
+                                p: int,
+                                p_def = [],
+                                def_coord = []):
     i2e = prepare_constant_errors(distance, p)
 
     string, c2i= coord_circuit(distance)
@@ -487,6 +477,7 @@ def surface_code_circuit_string(distance, rounds, p, p_def = [], def_coord = [])
         else:
             map_defects(c2i, i2e, def_coord, p_def)
     
+    #Circuit builder steps:
     string += initialization_step(distance, i2e)
     string += rounds_step(distance, rounds, i2e)
     string += final_step(distance, i2e)
@@ -497,13 +488,26 @@ def surface_code_circuit_string(distance, rounds, p, p_def = [], def_coord = [])
 # defects -> boolean; if true, the qubits at the specified def_coords with be overrided with the values in p_def
 # p_def -> array of physical error rates for defective qubits
 # defect_coords -> array of coordinates for defective qubits [(x1, y1), (x2, y2), ...], p_def[i] corresponds to defect_coords[i]
-def surface_code_circuit_string_with_sigma_noise(distance, rounds, p_mu, p_sigma, p_def = [], def_coord = [], show_norm_plot = False):
-    if p_sigma == 0.0:
-        return surface_code_circuit_string(distance, rounds, p = p_mu, p_def= p_def, def_coord = def_coord)
-
-    i2e = prepare_norm_dist_errors(distance, p_mu, p_sigma)
-
+def surface_code_circuit_string_with_sigma_noise(distance: int, 
+                                                 rounds: int, 
+                                                 p_mu: float, 
+                                                 p_sigma: float, 
+                                                 p_def = [], 
+                                                 def_coord = [],
+                                                 noise_func = None,
+                                                 show_norm_plot = False, 
+                                                 return_qubit_mapping = False):
     string, c2i = coord_circuit(distance)
+
+    # If deviation is 0, treat it like a homogeneous noise model. Helpful for gathering baselines to no deviation.
+    if p_sigma == 0.0:
+        if return_qubit_mapping:
+            i2e = prepare_constant_errors(distance, p_mu)
+            return surface_code_circuit_string(distance, rounds, p = p_mu, p_def= p_def, def_coord = def_coord), i2e, c2i
+        else:
+            return surface_code_circuit_string(distance, rounds, p = p_mu, p_def= p_def, def_coord = def_coord)
+
+    i2e = prepare_error_map(distance=distance, noise_dist_func=noise_func, p_mu = p_mu, p_sigma=p_sigma)
 
     if def_coord and p_def:
         # if only one p_def is given, give all defective coords the same error
@@ -513,13 +517,17 @@ def surface_code_circuit_string_with_sigma_noise(distance, rounds, p_mu, p_sigma
         if not validate_def_coords(def_coord, p_def, distance):
             return None
         else:
-
             map_defects(c2i, i2e, def_coord, p_def)
 
-    # print(i2e)
     if show_norm_plot:
         plot_lattice_errors(i2e, distance, p_mu, p_sigma)
+    
+    #Circuit builder steps:
     string += initialization_step(distance, i2e)
     string += rounds_step(distance, rounds, i2e)
     string += final_step(distance, i2e)
-    return string
+
+    if return_qubit_mapping:
+        return string, i2e, c2i
+    else:
+        return string
