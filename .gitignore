@@ -4,7 +4,9 @@ scratch_notebooks
 versions
 data/
 figures/
+backed_data/
 __pycache__/
 __pycache__
 .vscode
 .DS_STORE
+local_figures/
