@@ -9,5 +9,6 @@ backed_data/
 __pycache__/
 __pycache__
 .vscode
-.DS_STORE
+.DS_Store
+**/._.DS_Store
 local_figures/
