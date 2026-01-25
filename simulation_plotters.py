@@ -20,6 +20,12 @@ from collections import OrderedDict
 from helpers import *
 import ddq_circuit_generators as scg
 
+def format_defect_title(defect_types):
+    if isinstance(defect_types, list):
+        return ', '.join([i.title() for i in defect_types])
+    else:
+        return defect_types.title()
+
 def sort_legend(lables_handles, convert_to_percent = False, key_type="float"):
     handles = lables_handles[0]
     labels = lables_handles[1]
@@ -37,7 +43,8 @@ def sort_legend(lables_handles, convert_to_percent = False, key_type="float"):
         sorted_labels = [f'{float(label)*100:.0f}%' for label in sorted_labels]
 
     return (sorted_handles, sorted_labels)
-
+                
+#TODO - remove calculation and use generate_BADs for intersection determination and use this as the method to plot the intersections
 def generate_intersections(df, x_data, y_data, group_data, ler_target, intersect_df, ax):
     intersection_x_coords = []
     texts = []
@@ -94,13 +101,10 @@ def format_ax_data(df, ax, ler_by_round = True, group_samples_by_override=None, 
         x_axis_col = x_axis_col_overide
     
     groups = df[group_samples_by].unique()
-    g_label = group_samples_by
-    row_lambda = lambda g: df[df[g_label] == g].sort_values(by=x_axis_col)
+    row_lambda = lambda g: df[df[group_samples_by] == g].sort_values(by=x_axis_col)
     x_lambda = lambda rows: rows[x_axis_col]
-
     y_lambda = lambda rows: rows['ler_round'] if ler_by_round else rows['ler_shot']
-    
-    groups = df[g_label].unique()
+
     colors = cm.tab10(np.linspace(0, 1, 10))
     shapes = iter(['o','^','s','p', 'h','o','d','+', 'X'])
 
@@ -115,13 +119,14 @@ def format_ax_data(df, ax, ler_by_round = True, group_samples_by_override=None, 
         x_data_arr.append(x_data.tolist())
         y_data_arr.append(y_data.tolist())
         group_data_arr.append(g)
-        if g_label == 'p_defect' and g == 0.0:
+        if group_samples_by == 'p_defect' and g == 0.0:
             ax.plot(x_data,y_data,c=[*c[:3], .6], marker=f"{s}", label=r'No Defect')
         else:
             ax.plot(x_data,y_data,c=[*c[:3], .6], marker=f"{s}", label=g)
     return x_data_arr, y_data_arr, group_data_arr
 
-## Homogeneous Noise Model Plot Generators ##
+
+## Noise Model Plot Generators ##
 def plot_simulation_data(df, 
                          use_loglog = True, 
                          ler_target = 0.005, 
@@ -141,7 +146,7 @@ def plot_simulation_data(df,
         fig.set_dpi(dpi)
         is_multiplot = False
 
-    x_data, y_data, group_data = format_ax_data(df, ax, x_axis_col_overide=x_axis_override)
+    x_data, y_data, group_data = format_ax_data(df, ax, ler_by_round=scope_ler_by_rounds, x_axis_col_overide=x_axis_override)
 
     noise_model = df.iloc[0]['noise_model']
     distance = df.loc[0]['distance']
@@ -163,7 +168,7 @@ def plot_simulation_data(df,
             x_variable = 'p'
             legend_title = r'p$_{defect}$'
             x_label = 'Physical Error Rate (p)'
-            ax_title = f"Homogeneous Noise w/ {df.iloc[0]['defect_type'].title()} Qubit Defect; (d={distance})"
+            ax_title = f"Homogeneous Noise w/ {format_defect_title(df.iloc[0]['defect_type'])} Qubit Defect; (d={distance}, r={df.iloc[0]['rounds']})"
         case 'heterogeneous':
             if x_axis_override == 'p_mu':
                 x_variable = 'p_mu'
@@ -172,7 +177,7 @@ def plot_simulation_data(df,
                 x_variable = 'mu_out'
                 x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
             legend_title = r'p$_{σ}$'
-            ax_title = f"Heterogeneous Noise; (d={distance})"
+            ax_title = f"Heterogeneous Noise; (d={distance}, r={df.iloc[0]['rounds']})"
         case 'heterogeneous-sig-scalar':
             if x_axis_override == 'p_mu':
                 x_variable = 'p_mu'
@@ -181,7 +186,7 @@ def plot_simulation_data(df,
                 x_variable = 'mu_out'
                 x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
             legend_title = r'α = p$_{σ}$/p$_{μ}$'
-            ax_title = f"Heterogeneous Noise; (d={distance})"
+            ax_title = f"Heterogeneous Noise; (d={distance}, r={df.iloc[0]['rounds']})"
         case 'heterogeneous-defect':
             if x_axis_override == 'p_mu':
                 x_variable = 'p_mu'
@@ -190,7 +195,7 @@ def plot_simulation_data(df,
                 x_variable = 'mu_out'
                 x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
             legend_title = r'p$_{defect}$'
-            ax_title = f"Heterogeneous Noise w/ {df.iloc[0]['defect_type'].title()} Qubit Defect; (d={distance}, {r'p$_{σ}$'}={df.iloc[0]['p_sigma']})"
+            ax_title = f"Heterogeneous Noise w/ {format_defect_title(df.iloc[0]['defect_type'])} Qubit Defect; (d={distance}, r={df.iloc[0]['rounds']}, {r'p$_{σ}$'}={df.iloc[0]['p_sigma']})"
         case 'heterogeneous-defect-sig-scalar':
             if x_axis_override == 'p_mu':
                 x_variable = 'p_mu'
@@ -199,7 +204,7 @@ def plot_simulation_data(df,
                 x_variable = 'mu_out'
                 x_label = r'Actual Mean Physical Error Rate (p$_{μ-out}$)'
             legend_title = r'p$_{defect}$'
-            ax_title = f"Heterogeneous Noise w/ {df.iloc[0]['defect_type'].title()} Qubit Defect; (d={distance}, {r'α'}={df.iloc[0]['p_sig_scalar']})"
+            ax_title = f"Heterogeneous Noise w/ {format_defect_title(df.iloc[0]['defect_type'])} Qubit Defect; (d={distance}, r={df.iloc[0]['rounds']}, {r'α'}={df.iloc[0]['p_sig_scalar']})"
 
     if use_loglog: 
         ax.loglog()

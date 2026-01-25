@@ -476,7 +476,7 @@ def surface_code_circuit_string(distance: int,
             return None
         else:
             map_defects(c2i, i2e, def_coord, p_def)
-    
+
     #Circuit builder steps:
     string += initialization_step(distance, i2e)
     string += rounds_step(distance, rounds, i2e)

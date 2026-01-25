@@ -67,14 +67,73 @@ def get_coord_for_qubit_type(distance, type = 'center data'):
         case 'edge measure':
             return (distance-0.5, .5)
         case 'center data':
-            return (int((distance + 1)/2), int((distance+1)/2))
+            return (int((distance + 1)/2), int((distance + 1)/2))
         case 'center measure':
-            return (int((distance + 1)/2) + 0.5, int((distance+1)/2) + 0.5)
+            return (int((distance + 1)/2) + 0.5, int((distance + 1)/2) + 0.5)
         case _:
             #TODO - throw error here probably
             return None
 
 
+## BADs Generators ##
+def get_noise_model_data(df, ler_by_round = True, group_samples_by_override = None, x_axis_col_overide = None):
+    match df.iloc[0]['noise_model']:
+        # If creating a special case (i.e. using an alpha scalar versus static deviations), you can create a special case here to specify what the plotter uses as the grouping columns (group_samples_by) and the column for the x data (x_axis_col)
+        # Note - If you do create a special case that requires additional columns in the stats DF, ensure that the DF is properly setup in the helpers.py and reflected in the experiment function in the simulation_experiments.py 
+        case 'homogeneous-uniform':
+            group_samples_by = 'distance'
+            x_axis_col = 'p'
+        case 'homogeneous-defect':
+            group_samples_by = 'p_defect'
+            x_axis_col = 'p'
+        case 'heterogeneous':
+            group_samples_by = 'p_sigma'
+            x_axis_col = 'mu_out'
+        case 'heterogeneous-sig-scalar':
+            group_samples_by = 'p_sig_scalar'
+            x_axis_col = 'mu_out'
+        case 'heterogeneous-defect' | 'heterogeneous-defect-sig-scalar':
+            group_samples_by = 'p_defect'
+            x_axis_col = 'mu_out'
+
+    # In some cases, it's helpful to override the default plot setup for a specific noise model experiment. In this case, you can call the plotter function 
+    if x_axis_col_overide:
+        x_axis_col = x_axis_col_overide
+    
+    groups = df[group_samples_by].unique()
+    row_lambda = lambda g: df[df[group_samples_by] == g].sort_values(by=x_axis_col)
+    x_lambda = lambda rows: rows[x_axis_col]
+    y_lambda = lambda rows: rows['ler_round'] if ler_by_round else rows['ler_shot']
+
+    x_data_arr = []
+    y_data_arr = []
+    group_data_arr = []
+    for g in np.sort(groups):
+        rows = row_lambda(g)
+        x_data = x_lambda(rows)
+        y_data = y_lambda(rows)
+
+        x_data_arr.append(x_data.tolist())
+        y_data_arr.append(y_data.tolist())
+        group_data_arr.append(g)
+    return x_data_arr, y_data_arr, group_data_arr
+
+def generate_BADs(df, ler_target, ler_by_round = True):
+    intersect_df = pd.DataFrame(columns=['distance', 'line', 'BAD'])
+    
+    for d in df['distance'].unique():
+        x_data, y_data, group_data = get_noise_model_data(df[df['distance'] == d], ler_by_round)
+        intersection_x_coords = []
+        # print(x_data)
+        for x, y, g in zip(x_data, y_data, group_data):
+            for i in range(len(x) - 1):
+                x1, y1 = x[i], y[i]
+                x2, y2 = x[i+1], y[i+1]
+                if (y1 <= ler_target < y2) or (y2 <= ler_target < y1):
+                    intersection_x = x1 + (ler_target - y1) * (x2 - x1) / (y2 - y1)
+                    intersection_x_coords.append(intersection_x)
+                    intersect_df.loc[len(intersect_df)] = {'distance': d, 'line': g, 'BAD': round_to_sig_figs(intersection_x, 4)}
+    return intersect_df.sort_values(by=['distance', 'line'])
 
 ## STIM Simulation Data Decomposers ##
 def stats_to_df(stats):
