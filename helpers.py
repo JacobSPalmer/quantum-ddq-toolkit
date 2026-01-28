@@ -232,19 +232,21 @@ def concat_stats_df(df_l):
         df_concat = pd.concat([df_concat, df], axis=0, ignore_index=True)
     return df_concat
 
-def stats_df_to_csv(df, filename, subfolder):
+def stats_df_to_csv(df, filename, subfolder, include_timestamp=True):
     path = 'data'
 
     now = datetime.now()
-    filename = f"{filename}-{now.strftime("%Y%m%d_%H%M")}.csv"
+
+    if include_timestamp:
+        filename = f"{filename}-{now.strftime("%Y%m%d_%H%M")}.csv"
+    else:
+        filename = f"{filename}.csv"
 
     subfolder_path = os.path.join(path, subfolder)
     filepath = os.path.join(path, subfolder, filename)
-    
 
     if not os.path.exists(subfolder_path):
         os.makedirs(subfolder_path)
-
     
     if isinstance(df, list):
         concat_stats_df(df).to_csv(filepath, index=False)
@@ -252,17 +254,19 @@ def stats_df_to_csv(df, filename, subfolder):
         df.to_csv(filepath, index=False)
     print(f'Saved plot as {filepath}')
     
-def save_pyplot_as_image(path, dpi):
+def save_pyplot_as_image(path, dpi, include_timestamps=False):
     subfolder = re.search(r"^(.*)/", path).group(0)
     filename = re.search(r'[^/]+$', path).group(0)
-
 
     subfolder_path = os.path.join('data', subfolder)
     if not os.path.exists(subfolder_path):
         os.makedirs(subfolder_path)
 
     now = datetime.now()
-    filepath = os.path.join(subfolder_path, f"{filename}-{now.strftime("%Y%m%d_%H%M")}.png")
+    if include_timestamps:
+        filepath = os.path.join(subfolder_path, f"{filename}-{now.strftime("%Y%m%d_%H%M")}.png")
+    else:
+        filepath = os.path.join(subfolder_path, f"{filename}")
 
     plt.savefig(fname=filepath, dpi=dpi, bbox_inches = 'tight')
     print(f'Saved plot as {filepath}')

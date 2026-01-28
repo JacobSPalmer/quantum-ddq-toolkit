@@ -130,8 +130,8 @@ def format_ax_data(df, ax, ler_by_round = True, group_samples_by_override=None, 
 def plot_simulation_data(df, 
                          use_loglog = True, 
                          ler_target = 0.005, 
-                         custom_y_range = None,
-                         custom_x_range = None,
+                         y_range = None,
+                         x_range = None,
                          scope_ler_by_rounds = True, 
                          ax = None, 
                          show_intersect=False, 
@@ -212,8 +212,8 @@ def plot_simulation_data(df,
         ax.set_ylim(0.0001, top=.5) 
     
     # For scenarios where you want to specifically zoom in perhaps!
-    if custom_x_range: ax.set_xlim(custom_x_range)
-    if custom_y_range: ax.set_ylim(custom_y_range)
+    if x_range: ax.set_xlim(x_range)
+    if y_range: ax.set_ylim(y_range)
     
     ax.grid(which='major')
     ax.grid(which='minor')
@@ -238,8 +238,13 @@ def plot_simulation_data(df,
         if save_figure_path:
             save_pyplot_as_image(save_figure_path, dpi)
 
+
+# Wrapper for plot to easily go over multiple distances
 def plot_multi_distance_simulation_data(arr_df, 
                                         grid_dims = None, 
+                                        fig_size_scalar = [10, 8],
+                                        fig_hspace = 0.09,
+                                        fig_wspace = 0.04,
                                         use_loglog = True, 
                                         ler_target = 0.005, 
                                         x_range = None, 
@@ -253,12 +258,21 @@ def plot_multi_distance_simulation_data(arr_df,
     if grid_dims is None:
         grid_dims = [math.floor(len(arr_df)/2) + len(arr_df)%2 , 2]
 
-    fig = plt.figure(figsize=(10*grid_dims[1], 8*grid_dims[0]))
-    gs = fig.add_gridspec(grid_dims[0],grid_dims[1], hspace=0.09, wspace=0.04)
+    fig = plt.figure(figsize=(fig_size_scalar[0]*grid_dims[1], fig_size_scalar[1]*grid_dims[0]))
+    gs = fig.add_gridspec(grid_dims[0],grid_dims[1], hspace=fig_hspace, wspace=fig_wspace)
     gs.subplots().flatten()
 
     for df, ax in zip(arr_df, fig.get_axes()):
-        plot_simulation_data(df, use_loglog=use_loglog, ler_target=ler_target, custom_y_range=y_range, custom_x_range=x_range, scope_ler_by_rounds=scope_ler_by_rounds, ax=ax, show_intersect=show_intersect, intersect_df=intersect_df, dpi=dpi, x_axis_override=x_axis_override)
+        plot_simulation_data(df, 
+                             use_loglog=use_loglog, 
+                             ler_target=ler_target, 
+                             y_range=y_range, 
+                             x_range=x_range, 
+                             scope_ler_by_rounds=scope_ler_by_rounds, 
+                             ax=ax, show_intersect=show_intersect, 
+                             intersect_df=intersect_df, 
+                             dpi=dpi, 
+                             x_axis_override=x_axis_override)
 
     for ax in fig.get_axes():
         ax.label_outer()
@@ -267,4 +281,4 @@ def plot_multi_distance_simulation_data(arr_df,
 
     # If you would like to easily save the generated figure
     if save_figure_path:
-        save_pyplot_as_image(save_figure_path, dpi)
+        save_pyplot_as_image(save_figure_path, dpi, include_timestamps=False)
