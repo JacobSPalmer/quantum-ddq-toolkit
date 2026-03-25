@@ -1,13 +1,8 @@
 TODO.md
-defective_qubit_notebook.ipynb
-scratch_notebooks
-versions
-data/
-data-old/
+local
 figures/
 backed_data/
 __pycache__/
 __pycache__
 .vscode
 .DS_STORE
-local_figures/
