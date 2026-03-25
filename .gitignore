@@ -1,12 +1,7 @@
 TODO.md
-defective_qubit_notebook.ipynb
-scratch_notebooks
-versions
-/data
-data-old/
+local
 figures/
 __pycache__/
 __pycache__
 .vscode
 .DS_STORE
-supplementary-materials/icrc_plots copy.ipynb
