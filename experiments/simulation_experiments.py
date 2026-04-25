@@ -23,69 +23,81 @@ import generators.rsc_z_generator as scg
 ## If there is any interest in using this project for any case, please feel free to reach out with any questions! :)
 
 ## Case 1: Uniform Homogeneous (No Defect) ##
-def uniform_homogeneous_noise_model_simulation_distance(distances: list, 
+def uniform_homogeneous_noise_model_simulation_distance(distance: int | list, 
                                                         p_values = [],
-                                                        rounds = 3,
-                                                        use_d_for_rounds = False,
-                                                        max_shots = 50_000):
+                                                        rounds = None,
+                                                        rounds_lambda = None,
+                                                        max_shots = 50_000,
+                                                        log_progress = True):
     """
     Runs STIM simulations of the repetition code under a homogeneous noise model given the specified parameters with the option to specify defect qubit parameters.
 
     Args:
-        distance (integer): Code distance for the generated circuits
+        distance (integer|list): Code distance for the generated circuits
+        rounds (integer|none): # of complete cycles in the generated repitition code circuits. If none, each circuit will have rounds equal to the distance of circuit.
         p_values (array): Array of physical qubit error values to generate samples over
-        rounds (integer): # of complete cycles in the generated repitition code circuits
-        use_d_for_rounds (bool): If set to true, the number of rounds on a generated circuit will be determined by its distance, overriding the rounds arguement.
         max_shots (integer): # of times each circuit will be sampled
     """
 
     if not p_values:
         p_values = [round_to_sig_figs(i, 15) for i in np.logspace(-3, -1, 20).tolist()]
 
+    if rounds:
+        rounds_lambda = lambda _d: rounds
+    elif rounds_lambda is None:
+        rounds_lambda = lambda _d: _d
+
+    def task(d):
+        t = time.time()
+
     ## Converts the given defect type string to a coordinate appropriate to the specified code distance (i.e. d=5, defect_type = 'center-data' => def_coord = (3,3) ## 
-    tasks = [
-        sinter.Task(
-            circuit = stim.Circuit(scg.surface_code_circuit_string(distance = d, 
-                                                                    rounds= d if use_d_for_rounds else rounds, 
-                                                                    p=p)),
-            json_metadata={'p': p, 
-                            'rounds': d if use_d_for_rounds else rounds,
-                            'distance': d,
-                            'noise_model': 'homogeneous-uniform'}
+        tasks = [
+            sinter.Task(
+                circuit = stim.Circuit(scg.surface_code_circuit_string(distance = d, 
+                                                                        rounds = rounds_lambda(d), 
+                                                                        p = p)),
+                json_metadata={'p': p, 
+                                'rounds': rounds_lambda(d),
+                                'distance': d,
+                                'noise_model': 'homogeneous-uniform'}
+            )
+            for p in p_values
+            for d in distance
+        ]
+
+        stats: List[sinter.TaskStats] = sinter.collect(
+            num_workers=os.cpu_count(),
+            tasks=tasks,
+            decoders=['pymatching'],
+            max_shots=max_shots
         )
-        for p in p_values
-        for d in distances
-    ]
+        if log_progress: print(f'Completed d={d} - Runtime: {(time.time() - t):.4f} seconds\n')
+        return stats_to_df(stats)
 
-    stats: List[sinter.TaskStats] = sinter.collect(
-        num_workers=os.cpu_count(),
-        tasks=tasks,
-        decoders=['pymatching'],
-        max_shots=max_shots
-    )
-    return stats_to_df(stats)
-
+    if isinstance(distance, list):
+        return [task(d) for d in distance]
+    else:
+        return task(distance)
+    
 ## Case 2: Uniform Homogeneous with Defects ##
 def homogeneous_noise_model_simulation(distance: int | list, 
-                                       defect_type: list,
-                                       p_defect_values: list,
                                        p_values = [], 
-                                       rounds = 3, 
-                                       use_d_for_rounds = False,
-                                       rounds_lambda = None,
+                                       p_defect_values = [],
+                                       defect_type = [],
                                        max_shots = 50_000,
+                                       rounds = None,
+                                       rounds_lambda = None,
                                        log_progress = True):
     """
     Runs STIM simulations of the repetition code under a homogeneous noise model given the specified parameters with the option to specify defect qubit parameters.
 
     Args:
-        distance (integer): Code distance for the generated circuits
+        distance (integer | list): Code distance(s) for the generated circuits.
+        rounds (integer | none): # of complete cycles in the generated repitition code circuits. If none, each circuit will have rounds equal to the distance of circuit.
+        rounds_lambda (lambda | none): Can be used to create a lambda function for specifying rounds based on some output
         defect_type (array): String representing the location on the lattice of the defective qubit. Valid strings are either 'center-data', 'center-measure', 'edge-data', 'edge-measure'. Given the defect type, the exact coordinate of qubit's changes depending on code distance and this allows for selecting the same qubit in simulations with any given distance.
         p_defect_values (array): Array of physical qubit errors to generate samples over for the given defective qubit.
         p_values (array): Array of physical qubit error values to generate samples over
-        rounds (integer): # of complete cycles in the generated repitition code circuits
-        use_d_for_rounds (bool): If set to true, the number of rounds on a generated circuit will be determined by its distance, overriding the rounds arguement.
-        rounds_lambda (lambda): Can be used to create a lambda function for specifying rounds based on some output
         max_shots (integer): # of times each circuit will be sampled
         log_progress (bool): If true, progress is printed after each completed simulation for a given distance
     """
@@ -95,11 +107,10 @@ def homogeneous_noise_model_simulation(distance: int | list,
 
     ## Converts the given defect type string to a coordinate appropriate to the specified code distance (i.e. d=5, defect_type = 'center-data' => def_coord = (3,3) ## 
    
-    if rounds_lambda is None and use_d_for_rounds:
-        rounds_lambda = lambda _d: _d
-        ## If no explicit formulation for rounds is set but static round value given, use that
-    elif rounds_lambda is None:
+    if rounds:
         rounds_lambda = lambda _d: rounds
+    elif rounds_lambda is None:
+        rounds_lambda = lambda _d: _d
 
     def task(d):
         t = time.time()
@@ -142,7 +153,7 @@ def homogeneous_noise_model_simulation(distance: int | list,
     if isinstance(distance, list):
         return [task(d) for d in distance]
     else:
-        return task(distance)
+        return [task(distance)]
 
 
 
@@ -151,9 +162,9 @@ def homogeneous_noise_model_simulation(distance: int | list,
 def heterogeneous_noise_model_simulation(distance: int | list, 
                                          p_sigma_values: list, 
                                          p_mu_values = [], 
-                                         rounds = 3,
                                          use_p_sigma_values_as_scalars = False,
-                                         use_d_for_rounds = False,
+                                         rounds = None,
+                                         rounds_lambda = None,
                                          max_shots = 50_000,
                                          log_progress = True,
                                          distibution_func = None):
@@ -162,11 +173,11 @@ def heterogeneous_noise_model_simulation(distance: int | list,
 
     Args:
         distance (integer | array): Code distance for the generated circuits
+        rounds (integer | none): # of complete cycles in the generated repitition code circuits. If none, each circuit will have rounds equal to the distance of circuit.
+        rounds_lambda (lambda | none): Can be used to create a lambda function for specifying rounds based on some output
         p_sigma_values (array): Array of values that determine the std deviation to generate circuits with. For each combination of sigma and mu values provided, a unique circuit will be generated where each qubit's physical error will be randomly sampled from a distribution created from the given mu and sigma values. If use_p_sigma_values_as_scalars is set to true, then the values provided here will instead be used as scalars that represent a percentage of of the mean noise value to use as deviation.
         p_mu_values (array): Array of mean physical errors (p_mu) to create the distribution around.  If not specified, the mean physical errors will default to 20 points representing noise averages evenly distributed from 10^-3 to 10^-1 
-        rounds (integer): # of complete cycles in the generated repitition code circuits
         use_p_sigma_values_as_scalars (bool): If set to true, the scalar will be used to set the deviation as a percentage of the mean value. Otherwise, will be used as a static std deviation across all sampled values.
-        use_d_for_rounds (bool): If set to true, the number of rounds on a generated circuit will be determined by its distance, overriding the rounds arguement.
         max_shots (integer): # of times each circuit will be sampled
         log_progress (bool): If true, progress is printed after each completed simulation for a given distance
         distibution_func (lambda): Optional lambda parameter to specify how the distrubtion should be created
@@ -174,10 +185,14 @@ def heterogeneous_noise_model_simulation(distance: int | list,
     if not p_mu_values:
         p_mu_values = [round_to_sig_figs(i, 15) for i in np.logspace(-3, -1, 20).tolist()]
 
+    if rounds:
+        rounds_lambda = lambda _d: rounds
+    elif rounds_lambda is None:
+        rounds_lambda = lambda _d: _d
+
     def task(d):
         t = time.time()
         tasks = []
-
 
         for p_mu in p_mu_values:
             for p_sigma in p_sigma_values:
@@ -187,7 +202,7 @@ def heterogeneous_noise_model_simulation(distance: int | list,
                 else:
                     scalar = p_sigma / p_mu
                 circ_str, i2e, _ = scg.surface_code_circuit_string_with_sigma_noise(distance = d, 
-                                                                                        rounds=d if use_d_for_rounds else rounds, 
+                                                                                        rounds=rounds_lambda(d), 
                                                                                         p_mu=p_mu, 
                                                                                         p_sigma=p_sigma, 
                                                                                         return_qubit_mapping=True)
@@ -197,7 +212,7 @@ def heterogeneous_noise_model_simulation(distance: int | list,
                     json_metadata={'p_mu': p_mu, 
                                 'p_sigma': p_sigma, 
                                 'p_sig_scalar': scalar,
-                                'rounds':d if use_d_for_rounds else rounds,
+                                'rounds':rounds_lambda(d),
                                 'distance':d,
                                 'noise_model': 'heterogeneous' if not use_p_sigma_values_as_scalars else 'heterogeneous-sig-scalar',
                                 'mu_out': mu_out,
@@ -218,18 +233,18 @@ def heterogeneous_noise_model_simulation(distance: int | list,
     if isinstance(distance, list):
         return [task(d) for d in distance]
     else:
-        return task(distance)
+        return [task(distance)]
 
 
 
 ## Case 4: Heterogeneous Noise With Defect ##
 def heterogeneous_noise_model_with_defect_simulation(distance: int, 
                                                      scalar: float, 
-                                                     defect_type: list,
-                                                     p_defect_values = list, 
+                                                     defect_type = [],
+                                                     p_defect_values = [], 
                                                      p_mu_values = [], 
-                                                     rounds = 3, 
-                                                     use_d_for_rounds = False,
+                                                     rounds = None,
+                                                     rounds_lambda = None,
                                                      use_p_sigma_values_as_scalars = True,
                                                      max_shots = 50_000,
                                                      log_progress = True,
@@ -239,12 +254,12 @@ def heterogeneous_noise_model_with_defect_simulation(distance: int,
 
     Args:
         distance (integer | array): Code distance for the generated circuits
+        rounds (integer | none): # of complete cycles in the generated repitition code circuits. If none, each circuit will have rounds equal to the distance of circuit.
+        rounds_lambda (lambda | none): Can be used to create a lambda function for specifying rounds based on some output
         scalar (float): Scalar determines the std deviation to generate circuits for or the percentage of the mean noise value given for p_mu_values to use as std deviation. If use_p_sigma_values_as_scalars is set to true, then this will be used as a scalar value.
         defect_type (array): Array representing the locations on the lattice of the defective qubit. Valid strings are either 'center-data', 'center-measure', 'edge-data', 'edge-measure'. Given the defect type, the exact coordinate of qubit's changes depending on code distance and this allows for selecting the same qubit in simulations with any given distance.        p_defect_values (array): Array of physical qubit errors to generate samples over for the given defective qubit.
         p_defect_values (array): Array of physical qubit errors to generate samples over for the given defective qubit.
         p_mu_values (array): Array of mean physical errors (p_mu) to create the distribution around.  If not specified, the mean physical errors will default to 20 points representing noise averages evenly distributed from 10^-3 to 10^-1 
-        rounds (integer): # of complete cycles in the generated repitition code circuits
-        use_d_for_rounds (bool): If set to true, the number of rounds on a generated circuit will be determined by its distance, overriding the rounds arguement.
         use_p_sigma_values_as_scalars (bool): If set to true, the scalar will be used to set the deviation as a percentage of the mean value. Otherwise, will be used as a static std deviation across all sampled values.
         max_shots (integer): # of times each circuit will be sampled
         log_progress (bool): If true, progress is printed after each completed simulation for a given distance
@@ -252,6 +267,10 @@ def heterogeneous_noise_model_with_defect_simulation(distance: int,
     """
     if not p_mu_values:
         p_mu_values = [round_to_sig_figs(i, 15) for i in np.logspace(-3, -1, 20).tolist()]
+    if rounds:
+        rounds_lambda = lambda _d: rounds
+    elif rounds_lambda is None:
+        rounds_lambda = lambda _d: _d
 
     def task(d):
         t = time.time()
@@ -274,7 +293,7 @@ def heterogeneous_noise_model_with_defect_simulation(distance: int,
                 else:
                     p_sigma = scalar
                 circ_str, i2e, c2i = scg.surface_code_circuit_string_with_sigma_noise(distance = d, 
-                                                                                rounds=d if use_d_for_rounds else rounds, 
+                                                                                rounds=rounds_lambda(d), 
                                                                                 p_mu=p_mu, 
                                                                                 p_sigma=p_sigma,
                                                                                 p_def=p_def if p_def != 0.0 else None,
@@ -292,7 +311,7 @@ def heterogeneous_noise_model_with_defect_simulation(distance: int,
                     json_metadata={'p_mu': p_mu, 
                                 'p_sigma': p_sigma, 
                                 'p_sig_scalar': scalar,
-                                'rounds':d if use_d_for_rounds else rounds,
+                                'rounds':rounds_lambda(d),
                                 'distance':d,
                                 'p_def': p_def,
                                 'defect_coord': def_coord,
@@ -315,4 +334,4 @@ def heterogeneous_noise_model_with_defect_simulation(distance: int,
     if isinstance(distance, list):
         return [task(d) for d in distance]
     else:
-        return task(distance)
+        return [task(distance)]
